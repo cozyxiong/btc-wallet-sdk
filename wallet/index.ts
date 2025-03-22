@@ -3,8 +3,12 @@ const cashaddr = require('cashaddrjs');
 import * as ecc from 'tiny-secp256k1';
 import { BIP32Factory } from 'bip32';
 const bip32 = BIP32Factory(ecc);
+const bs58check = require('bs58check');
+import { ECPairFactory } from 'ecpair';
 // init ECC lib
 bitcoin.initEccLib(ecc);
+// init ECPair
+const ECPair = ECPairFactory(ecc);
 
 // 钱包标准协议（BIP 规范）
 const purposeMap = {
@@ -204,4 +208,105 @@ export function createBtcAddress(seedHex: string, addressType: string, chainType
         publicKey: Buffer.from(childNode.publicKey).toString('hex'),
         address: address
     }
+}    
+
+export function importBtcWallet(privateKey: string, addressType: string, chainType: string) {
+    // bitcore-lib 仅适用于 BTC/BCH/BSV
+    //if (!bitcore.privateKey.isValid(secretKey)) {
+    //    throw new Error('Invalid secret key');
+    //}
+    // 所有链的私钥本质均为 32 字节的随机数
+    // 版本号 + 32字节私钥 + 压缩标志（可选）
+    const network = getChainConfig(chainType);
+    const version = getChainConfig(chainType).wif;
+    const decoded = bs58check.decode(privateKey);
+    if (decoded[0] !== version) {
+        throw new Error('Invalid secretKey');
+    }
+    let keypair;
+    if (privateKey.length === 51 || privateKey.length === 52) { 
+        // WIF 格式的私钥（51 或 52 字符）（压缩私钥为 52 字符）
+        keypair = ECPair.fromWIF(privateKey, network);
+    } else if (privateKey.length === 64) { 
+        // 十六进制格式的私钥（64 字符）
+        keypair = ECPair.fromPrivateKey(Buffer.from(privateKey, 'hex'), { 
+            compressed: true,
+            network
+        });
+    } else {
+        throw new Error("Invalid private key format");
+    }
+    const publicKey = keypair.publicKey;
+
+    let address;
+    switch (addressType) {
+        case "p2pkh":
+            const p2pkhAddress = bitcoin.payments.p2pkh({
+                pubkey: publicKey,
+                network: network
+            });    
+            if (chainType === "bch") {
+                address = cashaddr.encode('bitcoincash','P2PKH',p2pkhAddress.hash);
+            } else {
+                address = p2pkhAddress.address;
+            }
+            break;
+        
+        case "p2sh":
+            let redeem;
+            // P2SH-P2WPKH（Nested SegWit，嵌套隔离见证），不支持 SegWit 的钱包可接收
+            if (chainType === "btc" || chainType === "ltc") {
+                redeem = bitcoin.payments.p2wpkh({
+                    pubkey: publicKey,
+                    network: network
+                });
+            } else {
+                // P2SH（原生 P2SH-P2MS，多签脚本）
+                const pubkeys = [publicKey]; // 假设只使用一个公钥，实际应用中应根据需求添加多个公钥
+                redeem = bitcoin.payments.p2ms({
+                    m: 1, // m-of-n 多签（2-of-3，需要3个公钥中2个签名即可完成交易。）
+                    pubkeys: pubkeys,
+                    network: network
+                });
+            }
+            const p2shAddress = bitcoin.payments.p2sh({
+                redeem: redeem,
+                network: network
+            });
+            if (chainType === "bch") {
+                address = cashaddr.encode('bitcoincash','P2SH',p2shAddress.hash);
+            } else {
+                address = p2shAddress.address;
+            }
+            break;
+        
+        case "p2wpkh":
+            if (chainType === "bch" || chainType === "bsv" || chainType === "doge") {
+                throw new Error("Not support this chain type");
+            }
+            const p2wpkhAddress = bitcoin.payments.p2wpkh({
+                pubkey: publicKey,
+                network: network
+            }); 
+            address = p2wpkhAddress.address;
+            break;
+
+        case "p2tr":
+            if (chainType !== "btc") {
+                throw new Error("Not support this chain type");
+            }
+            const p2trAddress = bitcoin.payments.p2tr({
+                internalPubkey: publicKey.subarray(1,33), // 必须为 32 字节的 x-only 公钥（即压缩公钥去掉前缀 0x02/0x03，仅保留后 32 字节）
+                network: network
+            });
+            address = p2trAddress.address;
+            break;
+
+        default:
+            throw new Error("Invalid address type");
+    }
+    if (!address) {
+        throw new Error('Address generation failed');
+    }
+    return address;
 }
