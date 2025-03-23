@@ -310,3 +310,46 @@ export function importBtcWallet(privateKey: string, addressType: string, chainTy
     }
     return address;
 }
+
+interface TxInput {
+    txid: string;
+    vout: number;
+    hex: string;
+    amount: number;
+}
+
+interface TxOutput {
+    address: string;
+    amount: number;
+}
+
+export function signP2PKHTransaction(privateKey: string, txObj: any, chainType: string, enableRBF: boolean = true) {
+    const network = getChainConfig(chainType);
+    const keypair = ECPair.fromWIF(privateKey, network);
+    // 构建 btc 交易
+    // PSBT 格式（部分签名的比特币交易）(BIP-174)
+    // PSBT 格式适用于所有比特币网络，支持所有类型的比特币交易，允许交易在不同参与者之间传递，逐步添加签名
+    const psbt = new bitcoin.Psbt({network});
+    txObj.inputs.forEach((input: TxInput) => {
+        psbt.addInput({
+            // 用户看到的 txid 通常以大端序（Big-Endian）的十六进制字符串形式展示
+            // 比特币协议在序列化交易时，输入的 txid 字段要求使用小端序（Little-Endian）的字节数组。
+            hash: Buffer.from(input.txid, "hex").reverse(),
+            index: input.vout,
+            // 启用 RBF（Replace-By-Fee，费用替换协议）（BIP-125）
+            // nSequence < 0xfffffffe
+            sequence: enableRBF ? 0xfffffffd : 0xffffffff,
+            // 完整的原始交易数据（HEX格式）
+            nonWitnessUtxo: Buffer.from(input.hex, "hex")
+        })
+    });
+    txObj.outputs.forEach((output: TxOutput) => {
+        psbt.addOutput({
+            value: BigInt(output.amount),
+            address: output.address
+        })
+    });
+    psbt.signAllInputs(keypair);
+    psbt.finalizeAllInputs();
+    return psbt.extractTransaction().toHex();
+}
