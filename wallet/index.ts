@@ -353,3 +353,34 @@ export function signP2PKHTransaction(privateKey: string, txObj: any, chainType: 
     psbt.finalizeAllInputs();
     return psbt.extractTransaction().toHex();
 }
+
+export function signP2SHTransaction(privateKey: string, txObj: any, chainType: string, enableRBF: boolean = true) {
+    const network = getChainConfig(chainType);
+    const keypair = ECPair.fromWIF(privateKey, network);
+    const psbt = new bitcoin.Psbt({network});
+    const redeem = bitcoin.payments.p2wpkh({pubkey: keypair.publicKey, network});
+    txObj.inputs.forEach((input: TxInput) => {
+        psbt.addInput({
+            hash: Buffer.from(input.txid, "hex").reverse(),
+            index: input.vout,
+            sequence: enableRBF ? 0xfffffffd : 0xffffffff,
+            // 仅需 UTXO 的脚本和金额，节省存储空间并提升验证效率。
+            witnessUtxo: {
+                // （外层 P2SH 锁定脚本）
+                script: bitcoin.payments.p2sh({redeem: redeem, network}).output!, 
+                value: BigInt(input.amount)
+            },
+            // （内层 P2WPKH 赎回脚本）
+            redeemScript: redeem.output!
+        })
+    });
+    txObj.outputs.forEach((output: TxOutput) => {
+        psbt.addOutput({
+            value: BigInt(output.amount),
+            address: output.address
+        })
+    });
+    psbt.signAllInputs(keypair);
+    psbt.finalizeAllInputs();
+    return psbt.extractTransaction().toHex();
+}
