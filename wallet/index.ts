@@ -384,3 +384,29 @@ export function signP2SHTransaction(privateKey: string, txObj: any, chainType: s
     psbt.finalizeAllInputs();
     return psbt.extractTransaction().toHex();
 }
+
+export function signP2WPKHTransaction(privateKey: string, txObj: any, chainType: string, enableRBF: boolean = true) {
+    const network = getChainConfig(chainType);
+    const keypair = ECPair.fromWIF(privateKey, network);
+    const psbt = new bitcoin.Psbt({network});
+    txObj.inputs.forEach((input: TxInput) => {
+        psbt.addInput({
+            hash: Buffer.from(input.txid, 'hex').reverse(),
+            index: input.vout,
+            sequence: enableRBF ? 0xfffffffd : 0xffffffff,
+            witnessUtxo: {
+                script: bitcoin.payments.p2wpkh({pubkey: keypair.publicKey, network}).output!, 
+                value: BigInt(input.amount)
+            },
+        })
+    });
+    txObj.outputs.forEach((output: TxOutput) => {
+        psbt.addOutput({
+            value: BigInt(output.amount),
+            address: output.address
+        })
+    });
+    psbt.signAllInputs(keypair);
+    psbt.finalizeAllInputs();
+    return psbt.extractTransaction().toHex();
+}
