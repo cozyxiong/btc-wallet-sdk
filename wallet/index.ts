@@ -410,3 +410,34 @@ export function signP2WPKHTransaction(privateKey: string, txObj: any, chainType:
     psbt.finalizeAllInputs();
     return psbt.extractTransaction().toHex();
 }
+
+export function signP2TRTransaction(privateKey: string, txObj: any, chainType: string, enableRBF: boolean = true) {
+    const network = getChainConfig(chainType);
+    const keypair = ECPair.fromWIF(privateKey, network);
+    const psbt = new bitcoin.Psbt({network});
+    const internalPubkey = keypair.publicKey.subarray(1, 33);
+    txObj.inputs.forEach((input: TxInput) => {
+        psbt.addInput({
+            hash: Buffer.from(input.txid, 'hex').reverse(),
+            index: input.vout,
+            sequence: enableRBF ? 0xfffffffd : 0xffffffff,
+            witnessUtxo: {
+                script: bitcoin.payments.p2tr({internalPubkey, network}).output!,
+                value: BigInt(input.amount),
+            },
+            tapInternalKey: internalPubkey
+        })
+    });
+    txObj.outputs.forEach((output: TxOutput) => {
+        psbt.addOutput({
+            value: BigInt(output.amount),
+            address: output.address
+        })
+    });
+    const tweakedPrivateKey = keypair.tweak(
+        Buffer.from(bitcoin.crypto.taggedHash('TapTweak', internalPubkey))
+      );
+    psbt.signAllInputs(tweakedPrivateKey);
+    psbt.finalizeAllInputs();
+    return psbt.extractTransaction().toHex();
+}
