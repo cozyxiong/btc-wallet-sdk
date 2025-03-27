@@ -323,6 +323,27 @@ interface TxOutput {
     amount: number;
 }
 
+export function signBtcTransaction(addressType: string, privateKey: string, txObj: any, network: string) {
+    let rawTx;
+    switch (addressType) {
+        case 'p2pkh':
+          rawTx = signP2PKHTransaction(privateKey, txObj, network);
+          break;
+        case 'p2sh':
+          rawTx = signP2SHTransaction(privateKey, txObj, network);
+          break;
+        case 'p2wpkh':
+          rawTx = signP2WPKHTransaction(privateKey, txObj, network);
+          break;
+        case 'p2tr':
+          rawTx = signP2TRTransaction(privateKey, txObj, network);
+          break;
+        default:
+          throw new Error('Unsupported address type');
+      }
+    return rawTx;
+}
+
 export function signP2PKHTransaction(privateKey: string, txObj: any, chainType: string, enableRBF: boolean = true) {
     const network = getChainConfig(chainType);
     const keypair = ECPair.fromWIF(privateKey, network);
