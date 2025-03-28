@@ -1,4 +1,4 @@
-import { createBtcAddress, importBtcWallet } from "../wallet";
+import { createBtcAddress, importBtcWallet, signBtcTransaction } from "../wallet";
 import * as bip39 from "bip39";
 
 describe("btc wallet test", () => {
@@ -18,4 +18,31 @@ describe("btc wallet test", () => {
             );
         console.log(result);
     })
+
+    test('sign btc transaction', async () => {
+        const addressType = 'p2wpkh';
+        const data = {
+            "inputs" : [
+                {
+                    "txid" : "",
+                    "vout" : 0,
+                    "hex" : "",
+                    "amount" : 496500
+                }
+            ],
+            "outputs" : [
+                {
+                    "amount" : 496000,
+                    "address" : ""
+                },
+            ]
+        };
+        const params = {
+            privateKey: "",
+            txObj: data,
+            chainType: "test"
+        }
+        const rawTx = signBtcTransaction(addressType, params.privateKey, params.txObj, params.chainType);
+        console.log(rawTx);
+    });
 })

@@ -208,7 +208,7 @@ export function createBtcAddress(seedHex: string, addressType: string, chainType
         publicKey: Buffer.from(childNode.publicKey).toString('hex'),
         address: address
     }
-}    
+}
 
 export function importBtcWallet(privateKey: string, addressType: string, chainType: string) {
     // bitcore-lib 仅适用于 BTC/BCH/BSV
